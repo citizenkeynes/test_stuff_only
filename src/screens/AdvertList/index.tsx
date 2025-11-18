@@ -14,9 +14,19 @@ import { useFocusEffect } from '@react-navigation/native';
 import { FlashList } from '@shopify/flash-list';
 import { Effect } from 'effect';
 import { FC, useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, FlatList, Pressable, StyleSheet, View } from 'react-native';
+import {
+  ActivityIndicator,
+  FlatList,
+  Pressable,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { LM_AdvertListItem, LM_FilterBar, LM_Text, LM_TextInput } from '../../components';
+import {
+  LM_AdvertListItem,
+  LM_FilterBar,
+  LM_Text,
+  LM_TextInput,
+} from '../../components';
 import { LM } from '../../constants';
 import {
   getAdvertCategoryColor,
@@ -26,17 +36,16 @@ import {
 const Advert_List: FC = ({ route, navigation }) => {
   const [searchText, setSearchText] = useState('');
   const [debouncedSearchText, setDebouncedSearchText] = useState('');
+  const [listings, setListings] = useState<readonly Listing[]>([]);
   const [categories, setCategories] = useState<readonly Category[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<number>(
     route?.params?.category || 0,
   );
-  const [type, setType] = useState<string>(route?.params?.type || 'ALL');
-  const [listings, setListings] = useState<readonly Listing[]>([]);
+  const [type, setType] = useState(route?.params?.type || 'ALL');
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { getT } = useApiTranslation();
-  const currentUser = useUserStore((state) => state.user);
 
   // Debouncing logic for search input
   useEffect(() => {
@@ -51,39 +60,45 @@ const Advert_List: FC = ({ route, navigation }) => {
 
   const handleSearch = useCallback((text: string) => {
     setSearchText(text);
+    // Will be used for filtering in future implementation
   }, []);
 
-  const fetchAdverts = useCallback(
-    async (categoryId: number, advertType: string) => {
-      setError(null);
-      setUpdating(true);
+  const fetchAdverts = useCallback(async ({
+    categoryId,
+    advertType,
+  }: {
+    categoryId: Category['id'];
+    advertType?: string;
+  }) => {
+    setError(null);
+    setUpdating(true);
 
-      await Effect.runPromise(
-        Effect.match(
-          fetchListings({
-            querySize: ListingsFetchQuerySizes.Md,
-            limit: 20,
-            filter: {
-              categoryIds: categoryId ? [categoryId] : [],
-              type: advertType === 'ALL' ? undefined : advertType,
-            },
-          }),
-          {
-            onFailure: (error) => {
-              setError(error.message || 'An error occurred');
-              console.error('Failed to load adverts:', error);
-            },
-            onSuccess: (list) => {
-              setListings(list);
-            },
+    await Effect.runPromise(
+      Effect.match(
+        fetchListings({
+          querySize: ListingsFetchQuerySizes.Md,
+          limit: 20,
+          filter: {
+            categoryIds: categoryId ? [categoryId] : [],
+            type: advertType === 'ALL' ? undefined : advertType,
           },
-        ),
-      );
+        }),
+        {
+          onFailure: (error) => {
+            setError(error.message || 'An error occurred');
+            console.error('Failed to load adverts:', error);
+            console.error('Error details:', JSON.stringify(error, undefined, 2));
+          },
+          onSuccess: (list) => {
+            setListings(list);
+          },
+        },
+      ),
+    );
 
-      setUpdating(false);
-    },
-    [],
-  );
+    setLoading(false);
+    setUpdating(false);
+  }, []);
 
   const fetchCategories = async () => {
     await Effect.runPromise(
@@ -114,49 +129,46 @@ const Advert_List: FC = ({ route, navigation }) => {
               },
               ...categoriesResponse,
             ]);
-            setLoading(false);
           },
         },
       ),
     );
   };
 
-  const handleCategoryChange = useCallback(
-    (newCategoryId: number) => {
-      setSelectedCategory(newCategoryId);
-      triggerHapticFeedback();
-      fetchAdverts(newCategoryId, type);
-    },
-    [fetchAdverts, type],
-  );
+  const handleTypeChange = useCallback((newType: string, currentCategory: number) => {
+    setType(newType);
+    fetchAdverts({ categoryId: currentCategory, advertType: newType });
+    triggerHapticFeedback();
+  }, [fetchAdverts]);
 
-  const handleTypeChange = useCallback(
-    (newType: string) => {
-      setType(newType);
-      triggerHapticFeedback();
-      fetchAdverts(selectedCategory, newType);
-    },
-    [fetchAdverts, selectedCategory],
-  );
+  const handleCategoryChange = (currentType: string, newCategoryId: number) => {
+    setSelectedCategory(newCategoryId);
+    fetchAdverts({ categoryId: newCategoryId, advertType: currentType });
+    triggerHapticFeedback();
+  };
+
+  const reloadAdverts = () => {
+    fetchCategories();
+    fetchAdverts({ categoryId: selectedCategory, advertType: type });
+  };
 
   useFocusEffect(
     useCallback(() => {
       if (!route.params || Object.keys(route.params).length === 0) {
-        fetchCategories();
-        fetchAdverts(selectedCategory, type);
+        reloadAdverts();
       }
       if (route?.params?.category) {
-        handleCategoryChange(route.params.category);
+        handleCategoryChange('ALL', route.params.category);
         delete route.params.category;
       }
-    }, [route, handleCategoryChange, selectedCategory, type]),
+    }, [route, handleTypeChange]),
   );
 
   const renderCategoryItem = ({ item }: { item: Category }) => {
     return (
       <Pressable
         onPress={() => {
-          handleCategoryChange(item.id);
+          handleCategoryChange(type, item.id);
         }}
         unstable_pressDelay={75}>
         {({ pressed }) => (
@@ -186,6 +198,26 @@ const Advert_List: FC = ({ route, navigation }) => {
       </Pressable>
     );
   };
+
+  const FooterComponent: React.FC = () =>
+    !!(updating && !loading && selectedCategory) && (
+      <View style={LM.margin_y_rg}>
+        <ActivityIndicator color={LM.text_light} />
+      </View>
+    );
+
+  const EmptyComponent = (
+    <View style={[LM.padding_rg, LM.items_center, { marginTop: 40 }]}>
+      <LM_Text type="h3" style={{ color: LM.text_light, marginBottom: 8 }}>
+        Keine Anzeigen
+      </LM_Text>
+      <LM_Text type="body" style={{ color: LM.text_light, textAlign: 'center' }}>
+        Es gibt noch keine Anzeigen in dieser Kategorie.
+      </LM_Text>
+    </View>
+  );
+
+  const currentUser = useUserStore((state) => state.user);
 
   const ListingItemWithLike: FC<{ item: Listing; index: number }> = ({ item, index }) => {
     const { isLiked, toggleLike, isToggling } = useListingLikesFromListing(
@@ -241,17 +273,15 @@ const Advert_List: FC = ({ route, navigation }) => {
       edges={['left', 'top', 'right']}
       style={[
         LM.flex,
-        { backgroundColor: LM.background_neutral },
+        {
+          backgroundColor:
+            categories.length === 0 || listings?.length
+              ? LM.background_white
+              : LM.background_neutral,
+        },
       ]}>
-      {/* Navigation Bar */}
-      <View style={styles.navBar}>
-        <LM_Text type="h3" style={styles.navTitle}>
-          Marktplatz
-        </LM_Text>
-      </View>
-
       <View style={[LM.flex]}>
-        {/* Header Section with Search and Categories */}
+        {/* Header Section */}
         <View style={[LM.padding_rg, { backgroundColor: LM.background_neutral }]}>
           <LM_TextInput
             type="search"
@@ -260,170 +290,54 @@ const Advert_List: FC = ({ route, navigation }) => {
             placeholder="Suche nach Anzeigen..."
           />
 
-          {/* Filter Bar */}
           <View style={[LM.margin_t_rg]}>
             <LM_FilterBar
+              style={[LM.flex]}
               pillBarOptions={[
                 { value: 'OFFER', label: 'Angebot' },
                 { value: 'ALL', label: 'Marktplatz' },
                 { value: 'REQUEST', label: 'Nachfrage' },
               ]}
               activeType={type}
-              onPress={handleTypeChange}
+              onPress={(newType: string) => handleTypeChange(newType, selectedCategory)}
             />
           </View>
 
           {!loading && categories.length > 0 && (
-            <View style={[LM.margin_t_rg]}>
-              <LM_Text type="small" style={{ color: LM.text_light, marginBottom: 8 }}>
-                Kategorien:
-              </LM_Text>
-              <FlatList
-                horizontal={true}
-                data={categories}
-                keyExtractor={(categoryItem) => categoryItem.id.toString()}
-                renderItem={renderCategoryItem}
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={[LM.gap_rg]}
-              />
-            </View>
-          )}
-
-          {selectedCategory !== 0 && (
-            <View
-              style={[
-                LM.padding_rg,
-                LM.margin_t_rg,
-                {
-                  backgroundColor: LM.background_white,
-                  borderRadius: 8,
-                  borderWidth: 1,
-                  borderColor: '#4CAF50',
-                },
-              ]}>
-              <LM_Text type="small" style={{ color: LM.text_light }}>
-                Ausgewählte Kategorie:
-              </LM_Text>
-              <LM_Text type="body" style={{ marginTop: 4 }}>
-                {getT(
-                  categories.find((cat) => cat.id === selectedCategory)
-                    ?.translations ?? [],
-                )?.title || 'Unbekannt'}
-              </LM_Text>
-            </View>
-          )}
-
-          {debouncedSearchText && (
-            <View
-              style={[
-                LM.padding_rg,
-                LM.margin_t_rg,
-                {
-                  backgroundColor: LM.background_white,
-                  borderRadius: 8,
-                  borderWidth: 1,
-                  borderColor: '#2196F3',
-                },
-              ]}>
-              <LM_Text type="small" style={{ color: LM.text_light }}>
-                Suche nach:
-              </LM_Text>
-              <LM_Text type="body" style={{ marginTop: 4 }}>
-                {debouncedSearchText}
-              </LM_Text>
-            </View>
-          )}
-
-          {loading && (
-            <View style={[LM.padding_rg, LM.margin_t_rg]}>
-              <LM_Text type="body" style={{ color: LM.text_light }}>
-                Kategorien werden geladen...
-              </LM_Text>
-            </View>
-          )}
-
-          {error && (
-            <View
-              style={[
-                LM.padding_rg,
-                LM.margin_t_rg,
-                {
-                  backgroundColor: '#ffebee',
-                  borderRadius: 8,
-                  borderWidth: 1,
-                  borderColor: '#f44336',
-                },
-              ]}>
-              <LM_Text type="small" style={{ color: '#c62828' }}>
-                Fehler:
-              </LM_Text>
-              <LM_Text type="body" style={{ marginTop: 4, color: '#c62828' }}>
-                {error}
-              </LM_Text>
-            </View>
+            <FlatList
+              horizontal={true}
+              data={categories}
+              keyExtractor={(categoryItem) => categoryItem.id.toString()}
+              estimatedItemSize={19}
+              renderItem={renderCategoryItem}
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={[
+                LM.gap_rg,
+                LM.padding_t_sm,
+                LM.padding_r_rg,
+                LM.padding_b_rg,
+                LM.padding_l_sm,
+              ]}
+              style={{ marginTop: 12 }}
+            />
           )}
         </View>
 
         {/* Listings Section */}
-        <View style={[LM.flex, { backgroundColor: LM.background_white }]}>
-          {updating && (
-            <View style={[LM.padding_rg]}>
-              <ActivityIndicator color={LM.text_light} size="large" />
-              <LM_Text
-                type="body"
-                style={{ color: LM.text_light, textAlign: 'center', marginTop: 8 }}>
-                Anzeigen werden geladen...
-              </LM_Text>
-            </View>
-          )}
-
-          {!updating && listings.length === 0 ? (
-            <View style={[LM.padding_rg, LM.items_center, { marginTop: 40 }]}>
-              <LM_Text type="h3" style={{ color: LM.text_light, marginBottom: 8 }}>
-                Keine Anzeigen
-              </LM_Text>
-              <LM_Text type="body" style={{ color: LM.text_light, textAlign: 'center' }}>
-                Es gibt noch keine Anzeigen in dieser Kategorie.
-              </LM_Text>
-            </View>
-          ) : (
-            <FlashList
-              data={listings}
-              renderItem={renderItem}
-              keyExtractor={(item) => item.id}
-              numColumns={2}
-              estimatedItemSize={275}
-              contentContainerStyle={[LM.padding_rg]}
-              ItemSeparatorComponent={() => <View style={{ height: 16 }} />}
-            />
-          )}
-        </View>
+        <FlashList
+          data={categories.length === 0 || listings.length === 0 ? [] : listings}
+          numColumns={2}
+          estimatedItemSize={275}
+          contentContainerStyle={[LM.padding_rg]}
+          renderItem={renderItem}
+          keyExtractor={(item) => item.id}
+          ListFooterComponent={() => <FooterComponent />}
+          ListEmptyComponent={EmptyComponent}
+          ItemSeparatorComponent={() => <View style={{ height: 16 }} />}
+        />
       </View>
     </SafeAreaView>
   );
 };
-
-const styles = StyleSheet.create({
-  navBar: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: '#ffffff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-  },
-  navTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#333',
-    textAlign: 'center',
-  },
-});
 
 export default Advert_List;
