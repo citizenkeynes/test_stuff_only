@@ -13,7 +13,7 @@ import { useApiTranslation } from '@l10n';
 import { useFocusEffect } from '@react-navigation/native';
 import { FlashList } from '@shopify/flash-list';
 import { Effect } from 'effect';
-import { FC, forwardRef, useCallback, useRef, useState } from 'react';
+import { FC, forwardRef, useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -49,7 +49,7 @@ type CustomScrollComponentProps = {
   renderCategoryItem: ({ item }: { item: Category }) => React.ReactNode;
   searchText: string;
   handleSearch: (text: string) => void;
-  handleSearchFocus: () => void;
+  debouncedSearchText: string;
   onPress: (newType: string, newCategory: number) => void;
   error: string | null;
   children: React.ReactNode;
@@ -67,7 +67,7 @@ const CustomScrollComponent = forwardRef<
       renderCategoryItem,
       searchText,
       handleSearch,
-      handleSearchFocus,
+      debouncedSearchText,
       onPress,
       error,
       ...props
@@ -91,11 +91,9 @@ const CustomScrollComponent = forwardRef<
             ]}>
             <LM_TextInput
               type="search"
-              // TODO: Reenable when search is implemented
-              // onChangeText={text => handleSearch(text)}
-              onPressIn={handleSearchFocus}
+              onChangeText={handleSearch}
               value={searchText}
-              readOnly={true}
+              placeholder="Suche nach Anzeigen..."
             />
           </View>
         )}
@@ -135,6 +133,27 @@ const CustomScrollComponent = forwardRef<
           </View>
         )}
         <LM_ErrorBanner error={error} style={[LM.margin_b_sm]} />
+        {debouncedSearchText && (
+          <View
+            style={[
+              LM.padding_rg,
+              LM.margin_x_rg,
+              LM.margin_b_sm,
+              {
+                backgroundColor: LM.background_neutral,
+                borderRadius: 8,
+                borderWidth: 1,
+                borderColor: '#e0e0e0',
+              },
+            ]}>
+            <LM_Text type="small" style={{ color: LM.text_light }}>
+              Suche nach:
+            </LM_Text>
+            <LM_Text type="body" style={{ marginTop: 4 }}>
+              {debouncedSearchText}
+            </LM_Text>
+          </View>
+        )}
         {props.children}
       </ScrollView>
     );
@@ -158,6 +177,7 @@ const Advert_List: FC = ({ route, navigation }) => {
   const [type, setType] = useState(route?.params?.type || 'ALL');
   const [pages, setPages] = useState({ 0: { OFFER: 0, ALL: 0, REQUEST: 0 } });
   const [searchText, setSearchText] = useState('');
+  const [debouncedSearchText, setDebouncedSearchText] = useState('');
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -167,6 +187,17 @@ const Advert_List: FC = ({ route, navigation }) => {
   const advertListRef = useRef(null);
   // TODO: Need if scroll to top with header is implemented
   // const safeAreaInsets = useSafeAreaInsets();
+
+  // Debouncing logic for search input
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedSearchText(searchText);
+    }, 500); // 500ms debounce delay
+
+    return () => {
+      clearTimeout(handler);
+    };
+  }, [searchText]);
 
   const fetchAdverts = useCallback(async ({
     categoryId,
@@ -265,17 +296,7 @@ const Advert_List: FC = ({ route, navigation }) => {
 
   const handleSearch = (text: string) => {
     setSearchText(text);
-    // setFilteredAdverts(
-    //   adverts[category]?.[type]?.filter(advert =>
-    //     advert.title.toLowerCase().includes(text.toLowerCase()),
-    //   ) || [],
-    // );
-  };
-
-  const handleSearchFocus = () => {
-    toast.error('Die Suchfunktion ist derzeit noch in Arbeit.', {
-      position: ToastPosition.BOTTOM,
-    });
+    // Will be used for filtering in future implementation
   };
 
   const reloadAdverts = () => {
@@ -399,8 +420,7 @@ const Advert_List: FC = ({ route, navigation }) => {
     renderCategoryItem: renderCategoryItem,
     searchText: searchText,
     handleSearch: handleSearch,
-    // TODO: Temporary search under construction toast message
-    handleSearchFocus: handleSearchFocus,
+    debouncedSearchText: debouncedSearchText,
     onPress: handleTypeChange,
     error: error,
   };
@@ -497,7 +517,7 @@ const Advert_List: FC = ({ route, navigation }) => {
             renderCategoryItem={renderCategoryItem}
             searchText={searchText}
             handleSearch={handleSearch}
-            handleSearchFocus={handleSearchFocus}
+            debouncedSearchText={debouncedSearchText}
             onPress={handleTypeChange}
             error={error}
             {...props}
