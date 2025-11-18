@@ -14,9 +14,9 @@ import { useFocusEffect } from '@react-navigation/native';
 import { FlashList } from '@shopify/flash-list';
 import { Effect } from 'effect';
 import { FC, useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, FlatList, Pressable, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { LM_AdvertListItem, LM_Text, LM_TextInput } from '../../components';
+import { LM_AdvertListItem, LM_FilterBar, LM_Text, LM_TextInput } from '../../components';
 import { LM } from '../../constants';
 import {
   getAdvertCategoryColor,
@@ -30,6 +30,7 @@ const Advert_List: FC = ({ route, navigation }) => {
   const [selectedCategory, setSelectedCategory] = useState<number>(
     route?.params?.category || 0,
   );
+  const [type, setType] = useState<string>(route?.params?.type || 'ALL');
   const [listings, setListings] = useState<readonly Listing[]>([]);
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
@@ -53,7 +54,7 @@ const Advert_List: FC = ({ route, navigation }) => {
   }, []);
 
   const fetchAdverts = useCallback(
-    async (categoryId: number) => {
+    async (categoryId: number, advertType: string) => {
       setError(null);
       setUpdating(true);
 
@@ -64,6 +65,7 @@ const Advert_List: FC = ({ route, navigation }) => {
             limit: 20,
             filter: {
               categoryIds: categoryId ? [categoryId] : [],
+              type: advertType === 'ALL' ? undefined : advertType,
             },
           }),
           {
@@ -123,22 +125,31 @@ const Advert_List: FC = ({ route, navigation }) => {
     (newCategoryId: number) => {
       setSelectedCategory(newCategoryId);
       triggerHapticFeedback();
-      fetchAdverts(newCategoryId);
+      fetchAdverts(newCategoryId, type);
     },
-    [fetchAdverts],
+    [fetchAdverts, type],
+  );
+
+  const handleTypeChange = useCallback(
+    (newType: string) => {
+      setType(newType);
+      triggerHapticFeedback();
+      fetchAdverts(selectedCategory, newType);
+    },
+    [fetchAdverts, selectedCategory],
   );
 
   useFocusEffect(
     useCallback(() => {
       if (!route.params || Object.keys(route.params).length === 0) {
         fetchCategories();
-        fetchAdverts(selectedCategory);
+        fetchAdverts(selectedCategory, type);
       }
       if (route?.params?.category) {
         handleCategoryChange(route.params.category);
         delete route.params.category;
       }
-    }, [route, handleCategoryChange, selectedCategory]),
+    }, [route, handleCategoryChange, selectedCategory, type]),
   );
 
   const renderCategoryItem = ({ item }: { item: Category }) => {
@@ -234,17 +245,9 @@ const Advert_List: FC = ({ route, navigation }) => {
       ]}>
       {/* Navigation Bar */}
       <View style={styles.navBar}>
-        <TouchableOpacity
-          onPress={() => navigation.goBack()}
-          style={styles.navButton}>
-          <LM_Text type="body" style={styles.navButtonText}>
-            ← Zurück
-          </LM_Text>
-        </TouchableOpacity>
         <LM_Text type="h3" style={styles.navTitle}>
           Marktplatz
         </LM_Text>
-        <View style={styles.navButton} />
       </View>
 
       <View style={[LM.flex]}>
@@ -256,6 +259,19 @@ const Advert_List: FC = ({ route, navigation }) => {
             value={searchText}
             placeholder="Suche nach Anzeigen..."
           />
+
+          {/* Filter Bar */}
+          <View style={[LM.margin_t_rg]}>
+            <LM_FilterBar
+              pillBarOptions={[
+                { value: 'OFFER', label: 'Angebot' },
+                { value: 'ALL', label: 'Marktplatz' },
+                { value: 'REQUEST', label: 'Nachfrage' },
+              ]}
+              activeType={type}
+              onPress={handleTypeChange}
+            />
+          </View>
 
           {!loading && categories.length > 0 && (
             <View style={[LM.margin_t_rg]}>
@@ -389,9 +405,8 @@ const Advert_List: FC = ({ route, navigation }) => {
 
 const styles = StyleSheet.create({
   navBar: {
-    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
     paddingHorizontal: 16,
     paddingVertical: 12,
     backgroundColor: '#ffffff',
@@ -403,19 +418,10 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
   },
-  navButton: {
-    width: 80,
-    paddingVertical: 8,
-  },
-  navButtonText: {
-    color: '#2196F3',
-    fontWeight: '500',
-  },
   navTitle: {
     fontSize: 18,
     fontWeight: '600',
     color: '#333',
-    flex: 1,
     textAlign: 'center',
   },
 });
