@@ -7,7 +7,7 @@ import { useApiTranslation } from '@l10n';
 import { useFocusEffect } from '@react-navigation/native';
 import { Effect } from 'effect';
 import { FC, useCallback, useEffect, useState } from 'react';
-import { FlatList, Pressable, ScrollView, View } from 'react-native';
+import { FlatList, Pressable, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LM_Text, LM_TextInput } from '../../components';
 import { LM } from '../../constants';
@@ -138,6 +138,21 @@ const Advert_List: FC = ({ route, navigation }) => {
         LM.flex,
         { backgroundColor: LM.background_neutral },
       ]}>
+      {/* Navigation Bar */}
+      <View style={styles.navBar}>
+        <TouchableOpacity
+          onPress={() => navigation.goBack()}
+          style={styles.navButton}>
+          <LM_Text type="body" style={styles.navButtonText}>
+            ← Zurück
+          </LM_Text>
+        </TouchableOpacity>
+        <LM_Text type="h3" style={styles.navTitle}>
+          Marktplatz
+        </LM_Text>
+        <View style={styles.navButton} />
+      </View>
+
       <ScrollView>
         <View style={[LM.padding_rg]}>
           <LM_TextInput
@@ -241,5 +256,38 @@ const Advert_List: FC = ({ route, navigation }) => {
     </SafeAreaView>
   );
 };
+
+const styles = StyleSheet.create({
+  navBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: '#ffffff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  navButton: {
+    width: 80,
+    paddingVertical: 8,
+  },
+  navButtonText: {
+    color: '#2196F3',
+    fontWeight: '500',
+  },
+  navTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#333',
+    flex: 1,
+    textAlign: 'center',
+  },
+});
 
 export default Advert_List;
