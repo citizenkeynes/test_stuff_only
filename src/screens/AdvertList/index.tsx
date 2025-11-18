@@ -294,10 +294,10 @@ const Advert_List: FC = ({ route, navigation }) => {
     triggerHapticFeedback();
   };
 
-  const handleSearch = (text: string) => {
+  const handleSearch = useCallback((text: string) => {
     setSearchText(text);
     // Will be used for filtering in future implementation
-  };
+  }, []);
 
   const reloadAdverts = () => {
     fetchCategories();
