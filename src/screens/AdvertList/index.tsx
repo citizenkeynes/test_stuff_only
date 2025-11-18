@@ -1,15 +1,22 @@
+import { toast, ToastPosition } from '@backpackapp-io/react-native-toast';
 import { triggerHapticFeedback } from '@common';
 import {
   Category,
   fetchCategories as fetchCategoriesApi,
+  fetchListings,
+  Listing,
+  ListingsFetchQuerySizes,
+  useListingLikesFromListing,
 } from '@core/api';
+import { useUserStore } from '@core/auth';
 import { useApiTranslation } from '@l10n';
 import { useFocusEffect } from '@react-navigation/native';
+import { FlashList } from '@shopify/flash-list';
 import { Effect } from 'effect';
 import { FC, useCallback, useEffect, useState } from 'react';
-import { FlatList, Pressable, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { LM_Text, LM_TextInput } from '../../components';
+import { LM_AdvertListItem, LM_Text, LM_TextInput } from '../../components';
 import { LM } from '../../constants';
 import {
   getAdvertCategoryColor,
@@ -23,9 +30,12 @@ const Advert_List: FC = ({ route, navigation }) => {
   const [selectedCategory, setSelectedCategory] = useState<number>(
     route?.params?.category || 0,
   );
+  const [listings, setListings] = useState<readonly Listing[]>([]);
   const [loading, setLoading] = useState(true);
+  const [updating, setUpdating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { getT } = useApiTranslation();
+  const currentUser = useUserStore((state) => state.user);
 
   // Debouncing logic for search input
   useEffect(() => {
@@ -41,6 +51,37 @@ const Advert_List: FC = ({ route, navigation }) => {
   const handleSearch = useCallback((text: string) => {
     setSearchText(text);
   }, []);
+
+  const fetchAdverts = useCallback(
+    async (categoryId: number) => {
+      setError(null);
+      setUpdating(true);
+
+      await Effect.runPromise(
+        Effect.match(
+          fetchListings({
+            querySize: ListingsFetchQuerySizes.Md,
+            limit: 20,
+            filter: {
+              categoryIds: categoryId ? [categoryId] : [],
+            },
+          }),
+          {
+            onFailure: (error) => {
+              setError(error.message || 'An error occurred');
+              console.error('Failed to load adverts:', error);
+            },
+            onSuccess: (list) => {
+              setListings(list);
+            },
+          },
+        ),
+      );
+
+      setUpdating(false);
+    },
+    [],
+  );
 
   const fetchCategories = async () => {
     await Effect.runPromise(
@@ -78,22 +119,26 @@ const Advert_List: FC = ({ route, navigation }) => {
     );
   };
 
-  const handleCategoryChange = useCallback((newCategoryId: number) => {
-    setSelectedCategory(newCategoryId);
-    triggerHapticFeedback();
-    // Category filtering logic will go here
-  }, []);
+  const handleCategoryChange = useCallback(
+    (newCategoryId: number) => {
+      setSelectedCategory(newCategoryId);
+      triggerHapticFeedback();
+      fetchAdverts(newCategoryId);
+    },
+    [fetchAdverts],
+  );
 
   useFocusEffect(
     useCallback(() => {
       if (!route.params || Object.keys(route.params).length === 0) {
         fetchCategories();
+        fetchAdverts(selectedCategory);
       }
       if (route?.params?.category) {
         handleCategoryChange(route.params.category);
         delete route.params.category;
       }
-    }, [route, handleCategoryChange]),
+    }, [route, handleCategoryChange, selectedCategory]),
   );
 
   const renderCategoryItem = ({ item }: { item: Category }) => {
@@ -131,6 +176,55 @@ const Advert_List: FC = ({ route, navigation }) => {
     );
   };
 
+  const ListingItemWithLike: FC<{ item: Listing; index: number }> = ({ item, index }) => {
+    const { isLiked, toggleLike, isToggling } = useListingLikesFromListing(
+      item,
+      currentUser?.id || null,
+    );
+
+    const handleLikeToggle = useCallback(async () => {
+      const wasLiked = isLiked;
+      try {
+        await toggleLike();
+        triggerHapticFeedback();
+        toast.success(
+          wasLiked
+            ? 'Die Anzeige wurde aus deiner Merkliste entfernt.'
+            : 'Die Anzeige wurde deiner Merkliste hinzugefügt.',
+          {
+            position: ToastPosition.BOTTOM,
+          },
+        );
+      } catch (err) {
+        console.error('Error toggling like:', err);
+        toast.error(
+          wasLiked
+            ? 'Fehler beim Entfernen der Anzeige aus deiner Merkliste.'
+            : 'Fehler beim Hinzufügen der Anzeige zur Merkliste.',
+          {
+            position: ToastPosition.BOTTOM,
+          },
+        );
+      }
+    }, [isLiked, toggleLike]);
+
+    return (
+      <LM_AdvertListItem
+        index={index}
+        advert={item}
+        navigation={navigation}
+        likeAdvert={handleLikeToggle}
+        unlikeAdvert={handleLikeToggle}
+        isLiked={isLiked}
+        isToggling={isToggling}
+      />
+    );
+  };
+
+  const renderItem = ({ item, index }: { item: Listing; index: number }) => (
+    <ListingItemWithLike item={item} index={index} />
+  );
+
   return (
     <SafeAreaView
       edges={['left', 'top', 'right']}
@@ -153,8 +247,9 @@ const Advert_List: FC = ({ route, navigation }) => {
         <View style={styles.navButton} />
       </View>
 
-      <ScrollView>
-        <View style={[LM.padding_rg]}>
+      <View style={[LM.flex]}>
+        {/* Header Section with Search and Categories */}
+        <View style={[LM.padding_rg, { backgroundColor: LM.background_neutral }]}>
           <LM_TextInput
             type="search"
             onChangeText={handleSearch}
@@ -252,7 +347,42 @@ const Advert_List: FC = ({ route, navigation }) => {
             </View>
           )}
         </View>
-      </ScrollView>
+
+        {/* Listings Section */}
+        <View style={[LM.flex, { backgroundColor: LM.background_white }]}>
+          {updating && (
+            <View style={[LM.padding_rg]}>
+              <ActivityIndicator color={LM.text_light} size="large" />
+              <LM_Text
+                type="body"
+                style={{ color: LM.text_light, textAlign: 'center', marginTop: 8 }}>
+                Anzeigen werden geladen...
+              </LM_Text>
+            </View>
+          )}
+
+          {!updating && listings.length === 0 ? (
+            <View style={[LM.padding_rg, LM.items_center, { marginTop: 40 }]}>
+              <LM_Text type="h3" style={{ color: LM.text_light, marginBottom: 8 }}>
+                Keine Anzeigen
+              </LM_Text>
+              <LM_Text type="body" style={{ color: LM.text_light, textAlign: 'center' }}>
+                Es gibt noch keine Anzeigen in dieser Kategorie.
+              </LM_Text>
+            </View>
+          ) : (
+            <FlashList
+              data={listings}
+              renderItem={renderItem}
+              keyExtractor={(item) => item.id}
+              numColumns={2}
+              estimatedItemSize={275}
+              contentContainerStyle={[LM.padding_rg]}
+              ItemSeparatorComponent={() => <View style={{ height: 16 }} />}
+            />
+          )}
+        </View>
+      </View>
     </SafeAreaView>
   );
 };
